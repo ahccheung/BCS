@@ -6,35 +6,57 @@ from sklearn.metrics import adjusted_rand_score,adjusted_mutual_info_score
 from sklearn.cluster import SpectralClustering, AffinityPropagation
 import clustering
 from generate_data import gen_data
+import csv
 
 def test_parameters(filename):
+  csvfile = open(filename, 'wb')
+  writer = csv.writer(csvfile)
+
+  par = ['pf', 'n', 'k', 'p', 'L', 'G', 'r']
+  metrics = ['mindivY', 'maxdivY', 'avgdivY', 'mindivX', 'maxdivX', 'avgdivX',
+  'ami_yw','ami_yx', 'ami_xw', 'p_xy', 's_xy', 'p_wx', 's_wx', 'p_wy', 's_wy',
+  'minsupp', 'avgsupp', 'maxsupp']
+  row = par + metrics
+  writer.writerow(row)
 
   G = 1000
-  ms = [int(np.floor(x)) for x in [G/200, G/100, G/50, G/20, G/10]]
-  ns = [int(np.floor(x)) for x in [G/20, G/10, G/5, G/2]]
-  Ls = [int(np.floor(G/2))]; Gs = [G]; thetas =
+  ms = [50] #ms = [G//200, G//100, G//50, G//20, G//10]
+  ns = [50, 100, 200, 500] #ns = [G//20, G//10, G//5, G//2]
+  Gs = [G]
+  rs = [0.2] #rs =[0.2, 0.5, 0.8]
 
-  params = itertools.product(ms, ns, ks, ps, Ls, Gs, thetas)
+  params = itertools.product(ms, ns, Gs, rs)
+  count = 1
 
   for par in params:
-    m, n, k, p, L, G, theta = par
-    pf = m
-    ks = [int(np.floor(x)) for x in [L/100, L/20, L/10, L/4]]
-    ps = [int(np.floor(x)) for x in [n/40, n/20, n/10, n/5]]
+    m, n, G, r = par
+    pf = m//5
+    Ls = [n//2]
+    ks = [n//20] #ks = [n//200, n//40, n//20, n//10]
+    ps = [n//20] #ps = [n//40, n//20, n//10, n//5]
 
-    kp = itertools.product(ks, ps)
+    lkp = itertools.product(Ls, ks, ps)
 
-    for (k, p) in kp:
-      print m, pf, n, k, p, L, G, theta
+    for (L, k, p) in lkp:
+      count += 1
+      if feasible_param(m, pf, n, k, p, L, G, r):
+        print "pf, n, k, p, L, G, r "
+        print pf, n, k, p, L, G, r
+        for i in range(0,100):
+          metrics = analyze_clustering(m, pf, n, k,  p, L, G, r)
+          row = [pf, n, k, p, L, G, r] + metrics
+          writer.writerow(row)
 
-      if feasible_param(m, pf, n, k, p, L, G, theta):
+  csvfile.close()
 
-        metrics = analyze_clustering(m, pf, n, k,  p, L, G, theta)
-        row = list(par) + metrics
-        # write row to csv
-
-def feasible_param(m,pf, n, k, p, L, G, theta):
+def feasible_param(m,pf, n, k, p, L, G, r):
   """Check that parameter values make sense."""
+
+  params = [m, pf, n, k, p, L, G, r]
+
+  if any(c == 0 for c in params):
+    print "Some parameters are 0!"
+    return False
 
   if pf > m:
     print "Number of fixed measurements more than total measurements!"
@@ -54,10 +76,10 @@ def feasible_param(m,pf, n, k, p, L, G, theta):
 
   return True
 
-def analyze_clustering(m, pf, n, k, p, L, G, theta):
+def analyze_clustering(m, pf, n, k, p, L, G, r):
 
-  Yf, Yv, Af, Av, U, W = gen_data(m, pf, n, k, p, L, G, theta)
-  X = U*W
+  Yf, Yv, Af, Av, U, W = gen_data(m, pf, n, k, p, L, G, r)
+  X = U.dot(W)
   c = clustering.num_clusters(n)
 
   # Obtain clusters based on fixed measurements
@@ -90,10 +112,19 @@ def analyze_clustering(m, pf, n, k, p, L, G, theta):
   p_xy, s_xy = compare_distances(X, Yf)
   p_wx, s_wx = compare_distances(W, X)
 
+  mod_supp_ratio = clustering.module_supp_ratio(cY, W, c)
+  minsupp = min(mod_supp_ratio)
+  avgsupp = np.mean(mod_supp_ratio)
+  maxsupp = max(mod_supp_ratio)
+
   metrics = [mindivY, maxdivY, avgdivY, mindivX, maxdivX, avgdivX, ami_yw,
-  ami_yx, ami_xw, p_xy, s_xy, p_wx, s_wx, p_wy, s_wy]
+  ami_yx, ami_xw, p_xy, s_xy, p_wx, s_wx, p_wy, s_wy, minsupp, avgsupp, maxsupp]
 
   return metrics
+
+
+def estimate_diff(Xhat, X):
+  return (1- np.linalg.norm(Xhat - X)**2/np.linalg.norm(X)**2)
 
 def compare_distances(X,Y):
   """Get Pearson and Spearman correlations between pairwise distance of columns
@@ -102,8 +133,8 @@ def compare_distances(X,Y):
   if X.shape[1] != Y.shape[1]:
     raise ValueError('X and Y must have the same number of columns.')
 
-  X = X.getA()
-  Y = Y.getA()
+  #X = X.getA()
+  #Y = Y.getA()
   dist_x = distance.pdist(X.T,'euclidean')
   dist_y = distance.pdist(Y.T,'euclidean')
 
@@ -119,8 +150,8 @@ def correlations(X,Y):
   if X.shape != Y.shape :
     raise ValueError('X and Y should have the same dimension.')
 
-  flatX = X.getA1()
-  flatY = Y.getA1()
+  flatX = X.flatten()
+  flatY = Y.flatten()
   p = (1 - distance.correlation(flatX, flatY))
   spear = spearmanr(flatX, flatY)
 
@@ -145,6 +176,8 @@ def corr_along_axis(X, Y, axis):
   p = (np.average(dist[np.isfinite(dist)]))
 
   return p
+
+
 
 def compare_clusters(X,Y):
   """Get adjusted mutual information score of clusters from samples X and Y."""
