@@ -5,19 +5,19 @@ import scipy as sp
 import sys
 from scipy.spatial import distance
 
-def gen_data(m, pf, n, k, p, L, G, max_r):
+def gen_data(m, pf, n, k, p, L, G, max_r, u_density=1.0):
   """Randomly generate dictionary U and activity matrix W. Randomly generate
   matrix of fixed measurements Af and 3d-array of measurement matrices Av.
   Generate observations Yf and Yv."""
 
   Af = gen_a(pf, G)
-  U = gen_dict(max_r, L, G)
+  U = gen_dict(max_r, L, G, u_density)
   W, Supp = gen_W(n, k, p, L)
-  Yf = compress(Af, U, W) # pfxn matrix of fixed composite measurements.
+  Yf = compress(Af, U, W)
   pv = m  - pf
 
-  Yv = np.empty((m, n)) # observations from variable measurements.
-  Av = np.empty(shape = (n, m, G)) # n matrices for variable measurements
+  Yv = np.empty((m, n))
+  Av = np.empty(shape = (n, m, G))
 
   for i in range(0, n): # get signals for variable measurements
     Ai = gen_a(pv, G)
@@ -37,20 +37,25 @@ def gen_a(m,G):
 
   return A
 
-def gen_dict(max_corr, L, G):
+def gen_dict(max_corr, L, G, u_density):
   """Generate dictionary U with L modules on G genes. Max_corr is the unsigned
   maximum threshold correlation between any two column vectors. U is G x L."""
 
   U = np.empty((G, L))
-  v = rd.uniform(0, 1, G) # Generate random vector. Another distribution?
+  k = int(u_density * G)
+  S = rand_subset(G, k)
+  v = rd.uniform(0, 1, G)
+  v = sparsify(v, S)
   v = v/np.linalg.norm(v)
   U[:,0] = v
 
-  for i in range(1, L):
+  for i in range(1,L):
     r_max = 1
 
     while r_max > max_corr:
+      S = rand_subset(G, k)
       v = rd.uniform(0, 1, G)
+      v = sparsify(v, S)
       v = v/np.linalg.norm(v)
       r_max = max(abs(1 - distance.cdist(U[:,0:i].T, [v], 'correlation')))
 
@@ -97,12 +102,6 @@ def gen_W(n, k, p, L):
     ind = ind + 1
 
   return (W, Supp)
-
-def module_supp(W):
-  """Count number of times each module is activated."""
-
-  v = np.apply_along_axis(np.count_nonzero, 1, W)
-  return v
 
 def rand_subset(L, k):
   """Randomly select subset of k elements from L, without replacement."""

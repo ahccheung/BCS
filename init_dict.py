@@ -5,77 +5,12 @@ import scipy as sp
 import spams
 from scipy.stats import entropy
 from sparse_optimization import SparseOptimization
-from pred_analysis import *
+import pred_analysis as pa
 from generate_data import gen_data
 from clustering import cluster_lab
 from scipy.spatial import distance
 import csv
 from sklearn.linear_model import OrthogonalMatchingPursuit as omp
-
-def test_cs(m, n, k, p, L, G, r, lda):
-
-  pf = m//5
-
-  Yf, Yv, Af, Av, U, W = gen_data(m, pf, n, k, p, L, G, r)
-  X = U.dot(W)
-
-  p_wy, s_wy = compare_distances(W, Yf)
-  p_xy, s_xy = compare_distances(X, Yf)
-  p_wx, s_wx = compare_distances(W, X)
-
-  lY = cluster_lab(Yf)
-  ami_yx = compare_clusters(Yf, X)
-  ami_xw = compare_clusters(X, W)
-  ami_yw = compare_clusters(Yf, W)
-
-  Uinit, Winit, Ub, Wb = run_bcs(lY, Yv, Av, lda, U, W, pf)
-  X0 = Uinit.dot(Winit)
-  Xbcs = Ub.dot(Wb)
-  init_err = estimate_diff(X0, X)
-  bcs_err = estimate_diff(Xbcs,X)
-  corrs= abs(1 - distance.cdist(Ub.T, U.T, 'correlation'))
-  minc = np.amin(corrs)
-  maxc = np.amax(corrs)
-
-  Wcs = run_cs(Yv, Av, U, W, False)
-  Xcs = U.dot(Wcs)
-  cs_err = estimate_diff(Xcs, X)
-
-  x = [p_wy, s_wy, p_xy, s_xy, p_wx, s_wx, ami_yx, ami_xw, ami_yw, init_err,
-  bcs_err, minc, maxc, cs_err]
-
-  return x
-
-def run_test(filename, ms, ks, ldas):
-  csvfile = open(filename, 'wb')
-  writer = csv.writer(csvfile)
-
-  par = ['pf', 'n', 'k', 'p', 'L', 'G', 'r', 'lda']
-  metrics = ['p_wy', 's_wy', 'p_xy', 's_xy', 'p_wx', 's_wx', 'ami_yx', 'ami_xw',
-  'ami_yw', 'init_err',  'bcs_err','minc', 'maxc', 'cs_err']
-  row = par + metrics
-  writer.writerow(row)
-
-  G = 1000
-  n = 200
-  L = 100
-  p = 10
-  #ms = [G, G//2, G//5, G//10, G//20, G//40]
-  #ks = [1, 2, 5, 8]
-  r = 0.2
-  #ldas = [5, 25, 45, 65, 85]
-  params = itertools.product(ms, ks, ldas)
-  for (m, k, lda) in params:
-    pf = m//5
-    for i in range(0, 5):
-      print "m, n, k, p, L, G, r, lda "
-      print m, n, k, p, L, G, r, lda
-      par = [m, n, k, p, L, G, r, lda]
-      metrics = test_cs(m, n, k, p, L, G, r, lda)
-      row = par + metrics
-      writer.writerow(row)
-
-  csvfile.close()
 
 
 def dict_from_clusters(lY, Av, Yv, lda, U, W, pf):
@@ -94,10 +29,9 @@ def dict_from_clusters(lY, Av, Yv, lda, U, W, pf):
   for c in set(lY):
     cidx = np.where(lY == c)[0]
     if n > 1000:
-      d = max(5,len(cidx)/20)
+      d = max(5,len(cidx)//20)
     else:
-      d = max(5,len(cidx)/10)
-
+      d = max(5,len(cidx)//10)
     a = Av[cidx]
     y = Yv[:,cidx]
     u,wc = get_cluster_modules(a,y,d,pf,dict_lda)
@@ -105,32 +39,26 @@ def dict_from_clusters(lY, Av, Yv, lda, U, W, pf):
     w = np.zeros((wc.shape[0],n))
     w[:,cidx] = wc
     W0 = np.vstack([W0,w])
-    xhat = u.dot(wc)
-    pearson,spearman,gene_pearson,sample_pearson = correlations(X[:,cidx],xhat)
-    var_fit = 1-np.linalg.norm(X[:,cidx]-xhat)**2/np.linalg.norm(X[:,cidx])**2
-    uent = np.average([np.exp(entropy(u)) for u in U0.T])
-    #print c,X.shape[0],len(cidx), pearson,spearman,gene_pearson,sample_pearson,var_fit,uent
 
   return U0, W0
 
-def refine(Yv, Av, U0, W0, X, lda, pf):
+def refine(Yv, Av, U0, W0, X, lda, pf, niter):
 
   G = X.shape[0]
   n = X.shape[1]
   U = U0
   W = W0
-
-  for _ in range(5):
+  X0 = U0.dot(W0)
+  fit0 = pa.estimate_diff(X0, X)
+  fits = [fit0]
+  for _ in range(niter):
     U = cDL(Yv, Av, W, U, lda, pf, sample_average_loss=False)
     W = get_W(Yv, Av , U, n, k=10)
     Xhat = U.dot(W)
-    Xhat[(Xhat < 0)] = 0
-    pearson,spearman,gene_pearson,sample_pearson= correlations(X,Xhat)
-    var_fit = 1-np.linalg.norm(X - Xhat)**2/np.linalg.norm(X)**2
-    uent = np.average([np.exp(entropy(u)) for u in U.T])
-    #print G, n,pearson,spearman,gene_pearson,sample_pearson,var_fit,uent
+    fit = pa.estimate_diff(Xhat, X)
+    fits.append(fit)
 
-  return U, W
+  return U, W, fits
 
 def run_cs(Yv, Av, U, W,nonneg):
   n = Av.shape[0]
@@ -141,29 +69,25 @@ def run_cs(Yv, Av, U, W,nonneg):
   if nonneg:
     Xhat[(Xhat < 0)] = 0
 
-  pearson,spearman,gene_pearson,sample_pearson= correlations(X,Xhat)
-  var_fit = 1-np.linalg.norm(X - Xhat)**2/np.linalg.norm(X)**2
-  #print  n,pearson,spearman,gene_pearson,sample_pearson,var_fit
-
-  print 'Fit: %f' % (estimate_diff(Xhat, X))
+  print 'Fit: %f' % (pa.estimate_diff(Xhat, X))
 
   return W0
 
-def run_bcs(lY, Yv, Av, lda, U, W, pf):
+def run_bcs(lY, Yv, Av, lda, U, W, pf, niter):
 
   X = U.dot(W)
 
   U0, W0 =dict_from_clusters(lY, Av, Yv, lda, U, W, pf)
   Lhat0 =U0.shape[1]
   Xhat0 = U0.dot(W0)
-  print 'init fit: %f' % (estimate_diff(Xhat0 , X))
+  print 'init fit: %f' % (pa.estimate_diff(Xhat0 , X))
 
-  U1, W1 = refine(Yv, Av, U0, W0, X, lda, pf)
+  U1, W1, fits = refine(Yv, Av, U0, W0, X, lda, pf, niter)
   Lhat1 =U1.shape[1]
   Xhat1 = U1.dot(W1)
-  print 'final fit: %f,' % (estimate_diff(Xhat1, X))
+  print 'final fit: %f,' % (pa.estimate_diff(Xhat1, X))
 
-  return U0, W0, U1, W1
+  return U0, W0, U1, W1, fits
 
 def get_cluster_modules(Av, Yv, d, pf, lda, maxItr=5):
   """Learn U and W from a single cluster."""

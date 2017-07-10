@@ -1,5 +1,5 @@
+from __future__ import division
 import numpy as np
-import itertools
 from scipy.spatial import distance
 from scipy.stats import spearmanr
 from sklearn.metrics import adjusted_rand_score,adjusted_mutual_info_score
@@ -8,46 +8,44 @@ import clustering
 from generate_data import gen_data
 import csv
 
-def test_parameters(filename):
-  csvfile = open(filename, 'wb')
-  writer = csv.writer(csvfile)
+def dict_sparsity(U):
+  counts = np.apply_along_axis(np.count_nonzero, 0, U)
+  G = U.shape[0]
 
-  par = ['pf', 'n', 'k', 'p', 'L', 'G', 'r']
-  metrics = ['mindivY', 'maxdivY', 'avgdivY', 'mindivX', 'maxdivX', 'avgdivX',
-  'ami_yw','ami_yx', 'ami_xw', 'p_xy', 's_xy', 'p_wx', 's_wx', 'p_wy', 's_wy',
-  'minsupp', 'avgsupp', 'maxsupp']
-  row = par + metrics
-  writer.writerow(row)
+  return (min(counts)/G, max(counts)/G, np.mean(counts)/G)
 
-  G = 1000
-  ms = [50] #ms = [G//200, G//100, G//50, G//20, G//10]
-  ns = [50, 100, 200, 500] #ns = [G//20, G//10, G//5, G//2]
-  Gs = [G]
-  rs = [0.2] #rs =[0.2, 0.5, 0.8]
+def analyze_bcs(Yf, lY, U0,W0,U1,W1, U,W, Wcs):
 
-  params = itertools.product(ms, ns, Gs, rs)
-  count = 1
+  X = U.dot(W)
+  p_wy, s_wy = compare_distances(W, Yf)
+  p_xy, s_xy = compare_distances(X, Yf)
+  p_wx, s_wx = compare_distances(W, X)
 
-  for par in params:
-    m, n, G, r = par
-    pf = m//5
-    Ls = [n//2]
-    ks = [n//20] #ks = [n//200, n//40, n//20, n//10]
-    ps = [n//20] #ps = [n//40, n//20, n//10, n//5]
+  lY = cluster_lab(Yf)
+  ami_yx = compare_clusters(Yf, X)
+  ami_xw = compare_clusters(X, W)
+  ami_yw = compare_clusters(Yf, W)
 
-    lkp = itertools.product(Ls, ks, ps)
+  x = [p_wy, s_wy, p_xy, s_xy, p_wx, s_wx, ami_yx, ami_xw, ami_yw]
+  x = x + bcs_metrics(U0,W0,U1,W1,U,W,Wcs)
 
-    for (L, k, p) in lkp:
-      count += 1
-      if feasible_param(m, pf, n, k, p, L, G, r):
-        print "pf, n, k, p, L, G, r "
-        print pf, n, k, p, L, G, r
-        for i in range(0,100):
-          metrics = analyze_clustering(m, pf, n, k,  p, L, G, r)
-          row = [pf, n, k, p, L, G, r] + metrics
-          writer.writerow(row)
+  return x
 
-  csvfile.close()
+def bcs_metrics(U0,W0,U1,W1,U,W,Wcs):
+
+  X = U.dot(W)
+  X0 = U0.dot(W0)
+  X1= U1.dot(W1)
+  Xcs = U.dot(Wcs)
+  init_fit = estimate_diff(X0, X)
+  bcs_fit = estimate_diff(X1,X)
+  corrs= abs(1 - distance.cdist(U1.T, U.T, 'correlation'))
+  minc = np.amin(corrs)
+  maxc = np.amax(corrs)
+
+  cs_fit = estimate_diff(Xcs, X)
+
+  return [init_fit, bcs_fit, cs_fit, minc, maxc]
 
 def feasible_param(m,pf, n, k, p, L, G, r):
   """Check that parameter values make sense."""
@@ -76,9 +74,9 @@ def feasible_param(m,pf, n, k, p, L, G, r):
 
   return True
 
-def analyze_clustering(m, pf, n, k, p, L, G, r):
+def analyze_clustering(Yf, U, W):
 
-  Yf, Yv, Af, Av, U, W = gen_data(m, pf, n, k, p, L, G, r)
+  n = Yf.shape[1]
   X = U.dot(W)
   c = clustering.num_clusters(n)
 
@@ -122,7 +120,6 @@ def analyze_clustering(m, pf, n, k, p, L, G, r):
 
   return metrics
 
-
 def estimate_diff(Xhat, X):
   return (1- np.linalg.norm(Xhat - X)**2/np.linalg.norm(X)**2)
 
@@ -143,7 +140,7 @@ def compare_distances(X,Y):
 
   return p,spear[0]
 
-def correlations(X,Y):
+def corr(X,Y):
   """Get Pearson and Spearman correlations of X & Y flattened, and Pearson corr
   across rows and columns of X and Y. X and Y should have the same dimension."""
 
@@ -176,8 +173,6 @@ def corr_along_axis(X, Y, axis):
   p = (np.average(dist[np.isfinite(dist)]))
 
   return p
-
-
 
 def compare_clusters(X,Y):
   """Get adjusted mutual information score of clusters from samples X and Y."""

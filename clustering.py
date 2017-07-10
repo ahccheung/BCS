@@ -117,22 +117,15 @@ def module_cluster_supp(lY, W, num_clus):
 def module_supp_ratio(lY, W, num_clus):
 
   clus_supp = module_cluster_supp(lY, W, num_clus)
-  mod_supp = generate_data.module_supp(W)
+  mod_supp = generate_data.count_vec(W)
   L = W.shape[0]
   ratios = [clus_supp[i]/mod_supp[i] for i in range(0,L) if mod_supp[i] != 0]
-  #ratios = clus_supp / mod_supp
   return ratios
 
 def count_vec(C):
   """Produces vector of counts based on how many non-zero entries there are in
-  the cluster. C is a matrix of vectors in the cluster."""
+  each row of a matrix."""
 
-  L = C.shape[0]
-  count = np.zeros(L)
+  counts = np.apply_along_axis(np.count_nonzero, 1, C)
 
-  for j in range(0, C.shape[1]):
-    ind = vec_supp(C[:,j]) # indices of non-zero entries
-    for i in ind:
-      count[i] += 1
-
-  return count.astype(int)
+  return counts.astype(int)
