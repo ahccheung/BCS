@@ -38,7 +38,6 @@ def cluster_lab(Y):
   c = num_clusters(n)
   dY = sim_mat(Y)
   lY = SpectralClustering(n_clusters=c,affinity='precomputed').fit_predict(dY)
-
   return lY
 
 def sort_cluster(lY,W, n_clus):
@@ -117,7 +116,7 @@ def module_cluster_supp(lY, W, num_clus):
 def module_supp_ratio(lY, W, num_clus):
 
   clus_supp = module_cluster_supp(lY, W, num_clus)
-  mod_supp = generate_data.count_vec(W)
+  mod_supp = count_vec(W)
   L = W.shape[0]
   ratios = [clus_supp[i]/mod_supp[i] for i in range(0,L) if mod_supp[i] != 0]
   return ratios

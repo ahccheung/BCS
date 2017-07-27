@@ -32,6 +32,7 @@ def dict_from_clusters(lY, Av, Yv, lda, U, W, pf):
       d = max(5,len(cidx)//20)
     else:
       d = max(5,len(cidx)//10)
+    print 'Cluster %d' % (c)
     a = Av[cidx]
     y = Yv[:,cidx]
     u,wc = get_cluster_modules(a,y,d,pf,dict_lda)
@@ -51,14 +52,19 @@ def refine(Yv, Av, U0, W0, X, lda, pf, niter):
   X0 = U0.dot(W0)
   fit0 = pa.estimate_diff(X0, X)
   fits = [fit0]
-  for _ in range(niter):
-    U = cDL(Yv, Av, W, U, lda, pf, sample_average_loss=False)
+  Us = [U0]
+  Ws = [W0]
+
+  for i in range(niter):
+    U = cDL(Yv, Av, W, U, lda, pf, with_prints=False, sample_average_loss=False)
     W = get_W(Yv, Av , U, n, k=10)
     Xhat = U.dot(W)
     fit = pa.estimate_diff(Xhat, X)
+    print 'Iteration %d, fit %f' %(i, fit)
     fits.append(fit)
-
-  return U, W, fits
+    Us.append(U)
+    Ws.append(W)
+  return Us, Ws, fits
 
 def run_cs(Yv, Av, U, W,nonneg):
   n = Av.shape[0]
@@ -82,12 +88,14 @@ def run_bcs(lY, Yv, Av, lda, U, W, pf, niter):
   Xhat0 = U0.dot(W0)
   print 'init fit: %f' % (pa.estimate_diff(Xhat0 , X))
 
-  U1, W1, fits = refine(Yv, Av, U0, W0, X, lda, pf, niter)
+  Us, Ws, fits = refine(Yv, Av, U0, W0, X, lda, pf, niter)
+  U1 = Us[-1]
+  W1 = Ws[-1]
   Lhat1 =U1.shape[1]
   Xhat1 = U1.dot(W1)
   print 'final fit: %f,' % (pa.estimate_diff(Xhat1, X))
 
-  return U0, W0, U1, W1, fits
+  return Us, Ws, fits
 
 def get_cluster_modules(Av, Yv, d, pf, lda, maxItr=5):
   """Learn U and W from a single cluster."""
@@ -101,7 +109,7 @@ def get_cluster_modules(Av, Yv, d, pf, lda, maxItr=5):
   W = get_W(Yv, Av, U, n ,k=k)
 
   for itr in range(maxItr):
-    U = cDL(Yv, Av, W, U, lda, pf, sample_average_loss=False)
+    U = cDL(Yv, Av, W, U, lda, pf, with_prints=False,sample_average_loss=False)
     W = get_W(Yv, Av, U, n, k=k)
 
   return U, W
@@ -112,9 +120,16 @@ def get_W(Yv, Av, U, n, k=5):
 
   L = U.shape[1]
   W = np.empty((L, n))
+  m = Yv.shape[0]
+  Yhat = np.empty((m,n))
   for i in range(0, n):
     Wi = sparse_decode(Yv[:,i:i+1],Av[i].dot(U),k,mink=min(5,k-1))
     W[:,i] = Wi
+    Yhat[:,i] = Av[i].dot(U).dot(Wi)
+  #fit = 1 - np.linalg.norm(Yv - Yhat)**2/np.linalg.norm(Yv)**2
+  #r2 = (1 - distance.correlation(Yv.flatten(),Yhat.flatten()))**2
+  #print 'fit: %f, r2: %f, W entropy: %f, W min: %f, W max: %f' % (fit,r2,
+  #np.average([np.exp(entropy(abs(w))) for w in W.T]),W.min(),W.max())
 
   return W
 

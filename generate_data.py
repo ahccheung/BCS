@@ -97,7 +97,8 @@ def gen_W(n, k, p, L):
       ind = ind + 1
 
   while ind < n: # Generate remaining samples
-    w = gen_w(L, S)
+    w = rd.randn(L)
+    w = sparsify(w,S)
     W[:,ind] = w
     ind = ind + 1
 

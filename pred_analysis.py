@@ -8,6 +8,10 @@ import clustering
 from generate_data import gen_data
 import csv
 
+def avg_max_corr(U, Uhat):
+  corrs = [np.max(1 - distance.cdist(Uhat.T[j].reshape(1, Uhat.shape[0]),U.T)) for j in range(Uhat.shape[1])]
+  return np.mean(corrs)
+
 def dict_sparsity(U):
   counts = np.apply_along_axis(np.count_nonzero, 0, U)
   G = U.shape[0]
@@ -74,6 +78,30 @@ def feasible_param(m,pf, n, k, p, L, G, r):
 
   return True
 
+def data_metrics(Yf,lY, U, W):
+
+  X = U.dot(W)
+  n = Yf.shape[1]
+  c = clustering.num_clusters(n)
+
+  ami_wy = compare_clusters(Yf, W)
+  ami_xy = compare_clusters(Yf, X)
+  ami_wx = compare_clusters(X, W)
+
+  # Correlation of distances
+  p_wy, s_wy = compare_distances(W, Yf)
+  p_xy, s_xy = compare_distances(X, Yf)
+  p_wx, s_wx = compare_distances(W, X)
+
+
+  mod_supp_ratio = clustering.module_supp_ratio(lY, W, c)
+  minsupp = min(mod_supp_ratio)
+  avgsupp = np.mean(mod_supp_ratio)
+  maxsupp = max(mod_supp_ratio)
+
+  metrics= [ami_wy, ami_xy, ami_wx, p_wy, p_xy, p_wx, minsupp, maxsupp, avgsupp]
+  return metrics
+
 def analyze_clustering(Yf, U, W):
 
   n = Yf.shape[1]
@@ -130,8 +158,6 @@ def compare_distances(X,Y):
   if X.shape[1] != Y.shape[1]:
     raise ValueError('X and Y must have the same number of columns.')
 
-  #X = X.getA()
-  #Y = Y.getA()
   dist_x = distance.pdist(X.T,'euclidean')
   dist_y = distance.pdist(Y.T,'euclidean')
 
